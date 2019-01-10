@@ -11,6 +11,7 @@ setup(
     author_email='grnydawn@gmail.com',
     license='MIT',
     packages=find_packages(),
+    test_suite="tests.ipss_unittest_suite",
     url='https://github.com/grnydawn/ipss',
     classifiers=[
         'Intended Audience :: Developers',
