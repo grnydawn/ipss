@@ -5,7 +5,7 @@ from random import seed, randint
 import ipss
 import itertools as it
 
-N = 10
+N = 6
 
 class PrimitiveTests(unittest.TestCase):
 
@@ -31,7 +31,7 @@ class PrimitiveTests(unittest.TestCase):
                 ref = next(iterable2, None) 
                 if val is None and ref is None:
                     break
-                self.assertEquals(val, ref)
+                self.assertEqual(val, ref)
                 idx += 1
 
     def test_range(self):
@@ -109,18 +109,36 @@ class PrimitiveTests(unittest.TestCase):
             self._iter_equals(iter(ipss.Chain(*iterables)), it.chain(*iterables))
 
 
-
     def test_permutations(self):
 
-        for i in range(1):
+        for i in range(N):
 
             l = self._nrandint(N)
+
             seq1 = [p for p in ipss.Permutations(l)]
             seq2 = [p for p in it.permutations(l)]
 
             for seq in seq1:
-                #self.assertEquals(val, ref)
-                assert seq in seq2
+                self.assertIn(seq, seq2)
+
+        seq1 = [p for p in ipss.Permutations(l, 0)]
+        seq2 = [p for p in it.permutations(l, 0)]
+
+        for seq in seq1:
+            self.assertIn(seq, seq2)
+
+        seq1 = [p for p in ipss.Permutations(l, N)]
+        seq2 = [p for p in it.permutations(l, N)]
+
+        for seq in seq1:
+            self.assertIn(seq, seq2)
+
+        seq1 = [p for p in ipss.Permutations(l, N*2)]
+        seq2 = [p for p in it.permutations(l, N*2)]
+
+        for seq in seq1:
+            self.assertIn(seq, seq2)
+
             #self._iter_equals(iter(ipss.Permutations(l)), it.permutations(l))
 
 #            slc1 = (randint(-10, 10), randint(-N, N), randint(1, 5))
@@ -140,4 +158,39 @@ class PrimitiveTests(unittest.TestCase):
 #            self._iter_equals(iter(ipss.Chain(*iterables)), it.chain(*iterables))
 
 
+    def test_combinations(self):
+
+        for i in range(N):
+
+            l = self._nrandint(N)
+            r = int(len(l)/2)
+            self._iter_equals(iter(ipss.Combinations(l,r)), it.combinations(l,r))
+
+        r = 0
+        self._iter_equals(iter(ipss.Combinations(l,r)), it.combinations(l,r))
+
+        r = len(l)
+        self._iter_equals(iter(ipss.Combinations(l,r)), it.combinations(l,r))
+
+        r = len(l)*2
+        self._iter_equals(iter(ipss.Combinations(l,r)), it.combinations(l,r))
+
+    def test_custom(self):
+
+        loop1 = {"indvars": ('a', 'b', 'c')}
+        loop2 = {"indvars": ('x', 'y', 'z')}
+        loops = (loop1, loop2)
+
+        xform1 = {"interchange": (1,2,3)}
+        xform2 = {"unroll": (-1,-2,-3)}
+        xforms = (xform1, xform2)
+        search_space = (loops, xforms)
+
+        search_generator = ipss.Product(*search_space)
+
+        self.assertEqual(len(search_generator), 4)
+
+
+
 test_classes = (PrimitiveTests,)
+

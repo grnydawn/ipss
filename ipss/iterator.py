@@ -11,6 +11,7 @@ PY3 = sys.version_info >= (3, 0)
 if PY3:
     Object = abc.ABCMeta("Object", (object,), {})
     from functools import reduce
+    long = int
 else:
     Object = abc.ABCMeta("Object".encode("utf-8"), (object,), {})
 
@@ -27,8 +28,30 @@ class Iterator(Object):
         pass
 
     @abc.abstractmethod
-    def __getitem__(self, key):
+    def getitem(self, key):
         pass
+
+    def _item(self, k):
+        k = self._validate_key(k)
+
+        if k < self._len:
+            return self.getitem(k)
+        else:
+            clsname = self.__class__.__name__
+            raise IndexError("%s index out of range"%clsname)
+
+    def __getitem__(self, key):
+
+        if isinstance(key, slice):
+            start = key.start if key.start else 0
+            stop = key.stop if key.stop else self._len
+            step = key.step if key.step else 1
+            result = []
+            for idx in range(start, stop, step):
+                result.append(self._item(idx))
+            return tuple(result)
+        else:
+            return self._item(key)
 
     def index(self, val):
         raise NotImplementedError()
@@ -44,7 +67,7 @@ class Iterator(Object):
     def __next__(self):
 
         if self._len == INF or self._key < self._len:
-            val = self.__getitem__(self._key)
+            val = self.getitem(self._key)
             self._key += 1
             return val
         else:
@@ -72,7 +95,7 @@ class Iterator(Object):
                 raise TypeError("Negative key for infinite iterator: %d"%key)
             return self._len + key
         elif self._len != INF and key >= self._len:
-            raise TypeError("Key is out of bound: %d."%key)
+            raise IndexError("index '%d' is out of bound"%key)
 
         return key
 
@@ -93,14 +116,9 @@ class Wrapper(Iterator):
         self._tuple = tuple(iterable)
         self._len = len(self._tuple)
 
-    def __getitem__(self, key):
+    def getitem(self, key):
 
-        key = self._validate_key(key)
-
-        if key < self._len:
-            return self._tuple[key]
-        else:
-            return None
+        return self._tuple[key]
         
 class Range(Iterator):
 
@@ -125,8 +143,9 @@ class Range(Iterator):
         _len = float(self._stop - self._start) / float(self._step)
         self._len = int(ceil(_len)) if _len > 0 else 0
 
-    def __getitem__(self, key):
-        val = self._start + self._step * self._validate_key(key)
+    def getitem(self, key):
+
+        val = self._start + self._step * key
         if ((self._step > 0 and val < self._stop) or
                 (self._step < 0 and val > self._stop)):
             return val
@@ -142,9 +161,9 @@ class Count(Iterator):
 
         self._len = INF
 
-    def __getitem__(self, key):
+    def getitem(self, key):
 
-        return self._start + self._step * self._validate_key(key)
+        return self._start + self._step * key
 
 
 class Cycle(Iterator):
@@ -165,9 +184,7 @@ class Cycle(Iterator):
         self._len = INF
         self._iterable_len = len(self._iterable)
 
-    def __getitem__(self, key):
-
-        key = self._validate_key(key)
+    def getitem(self, key):
 
         if key >= self._iterable_len:
             key = key % self._iterable_len
@@ -192,9 +209,8 @@ class Repeat(Iterator):
         else:
             self._len = times
             
-    def __getitem__(self, key):
+    def getitem(self, key):
 
-        key = self._validate_key(key)
         return self._elem
 
 class Chain(Iterator):
@@ -215,9 +231,8 @@ class Chain(Iterator):
         else:
             self._len = sum(self._iterable_lens)
 
-    def __getitem__(self, key):
+    def getitem(self, key):
 
-        key = self._validate_key(key)
         accum_len = 0
         for _len, it in zip(self._iterable_lens, self._iterables):
             if key >= accum_len and key < accum_len + _len:
@@ -241,9 +256,7 @@ class Product(Iterator):
 
         self._len = reduce(lambda x, y: x*y, self._pool_lens)
 
-    def __getitem__(self, key):
-
-        key = self._validate_key(key)
+    def getitem(self, key):
 
         product = [None]*self._dimension
         for dim, (_len, it) in enumerate(zip(self._pool_lens, self._pools)):
@@ -261,15 +274,15 @@ class Permutations(Iterator):
         self._n = len(self._iterable)
 
         if self._n == INF:
-            raise InfinityError("Permutations do not support infinity iterator.")
+            raise InfinityError("Permutation do not support infinity iterator.")
 
         self._r = self._n if r is None else r
         if self._r > self._n:
-            return
+            self._len = 0
+        else:
+            self._len = factorial(self._n) // factorial(self._n-self._r)
 
-        self._len = factorial(self._n) // factorial(self._n-self._r)
-
-    def __getitem__(self, key):
+    def getitem(self, key):
 
         class Marker(object):
             def __init__(self, it):
@@ -289,61 +302,54 @@ class Permutations(Iterator):
             def remained(self):
                 return len(self.used) < self.size
 
-        key = self._validate_key(key)
-        reverse = True
-            
-        seqc = Marker(self._iterable)
-        seqn = [seqc.pop(reverse=reverse)]
-        divider= 2
-        while seqc.remained():
-            key, new_key= key//divider, key%divider
-            seqn.insert(new_key, seqc.pop(reverse=reverse))
-            divider+= 1
-        return tuple(seqn)
+        if self._r > 0:
+            reverse = True
+            seqc = Marker(self._iterable)
+            seqn = [seqc.pop(reverse=reverse)]
+            divider= 2
+            while seqc.remained():
+                key, new_key= key//divider, key%divider
+                seqn.insert(new_key, seqc.pop(reverse=reverse))
+                divider+= 1
 
-#    def __getitem__(self, key):
-#
-#        class Marker(object):
-#            def __init__(self, it):
-#                self.it = it
-#                self.size = len(it)
-#                self.used = []
-#            def pop(self, choice):
-#                self.used.append(choice)
-#                return self.it[choice]
-#            def remained(self):
-#                return len(self.used) < self.size
-#            def __len__(self):
-#                return self.size - len(self.used)
-#
-#        def NPerms (n):
-#            return reduce (lambda x, y: x * y, range (1, n + 1), 1)
-#
-#        key = self._validate_key(key)
-#
-#        seqc = Marker(self._iterable)
-#        result = []
-#        fact = NPerms(self._n)
-#        key %= fact
-#        while seqc.remained():
-#            fact = fact // len(seqc)
-#            choice, key = key // fact, key % fact
-#            result += [seqc.pop(choice)]
-#        return tuple(result)
-#
-#def NPerms (seq):
-#    "computes the factorial of the length of "
-#    return reduce (lambda x, y: x * y, range (1, len (seq) + 1), 1)
-#
-#def PermN (seq, index):
-#    "Returns the th permutation of  (in proper order)"
-#    seqc = list (seq [:])
-#    result = []
-#    fact = NPerms (seq)
-#    index %= fact
-#    while seqc:
-#        fact = fact / len (seqc)
-#        choice, index = index // fact, index % fact
-#        result += [seqc.pop (choice)]
-#    return result
-#
+            return tuple(seqn)
+        else:
+            return tuple()
+
+class Combinations(Iterator):
+
+    def __init__(self, iterable, r):
+
+        self._iterable = self._validate_iterable(iterable)
+
+        self._n = len(self._iterable)
+
+        if self._n == INF:
+            raise InfinityError("Combination do not support infinity iterator.")
+
+        self._r = r
+
+        if r > self._n:
+            self._len = 0
+        else:
+            self._len = self._nCr(self._n, self._r)
+
+    def _nCr(self, n, r):
+        return (factorial(n) // factorial(r) // factorial(n-r))
+
+    def _kth(self, k, l, r):
+
+        if r == 0:
+            return []
+        elif len(l) == r:
+            return l
+        else:
+            i=self._nCr(len(l)-1, r-1)
+            if k < i:
+                return list(l[0:1]) + self._kth(k, l[1:], r-1)
+            else:
+                return list(self._kth(k-i, l[1:], r))
+
+    def getitem(self, key):
+
+        return tuple(self._kth(key, self._iterable, self._r))
